@@ -7,8 +7,7 @@ module OptimalTransport
 using Reexport
 
 @reexport using ExactOptimalTransport:
-                                       emd, emd2, ot_cost, ot_plan, wasserstein,
-                                       squared2wasserstein, discretemeasure
+    emd, emd2, ot_cost, ot_plan, wasserstein, squared2wasserstein, discretemeasure
 
 using LinearAlgebra
 using IterativeSolvers
@@ -25,7 +24,7 @@ export sinkhorn_stabilized, sinkhorn_stabilized_epsscaling, sinkhorn_barycenter
 export sinkhorn_unbalanced, sinkhorn_unbalanced2
 export sinkhorn_divergence, sinkhorn_divergence_unbalanced
 export quadreg
-export entropic_gromov_wasserstein
+export entropic_gromov_wasserstein, entropic_gromov_barycenters
 
 include("utils.jl")
 
