@@ -7,7 +7,8 @@ module OptimalTransport
 using Reexport
 
 @reexport using ExactOptimalTransport:
-    emd, emd2, ot_cost, ot_plan, wasserstein, squared2wasserstein, discretemeasure
+                                       emd, emd2, ot_cost, ot_plan, wasserstein,
+                                       squared2wasserstein, discretemeasure
 
 using LinearAlgebra
 using IterativeSolvers

@@ -31,29 +31,63 @@ The quantity ``\\| \\gamma - \\gamma_\\text{prev} \\|_1`` is compared against `a
 See also: [`sinkhorn`](@ref)
 """
 function entropic_gromov_wasserstein(
-    μ::AbstractVector,
-    ν::AbstractVector,
-    Cμ::AbstractMatrix,
-    Cν::AbstractMatrix,
-    ε::Real,
-    alg::EntropicGromovWasserstein=EntropicGromovWassersteinSinkhorn(SinkhornGibbs());
-    atol=nothing,
-    rtol=nothing,
-    check_convergence=10,
-    maxiter::Int=1_000,
-    kwargs...,
+        μ::AbstractVector,
+        ν::AbstractVector,
+        Cμ::AbstractMatrix,
+        Cν::AbstractMatrix,
+        ε::Real,
+        alg::EntropicGromovWasserstein = EntropicGromovWassersteinSinkhorn(SinkhornGibbs());
+        atol = nothing,
+        rtol = nothing,
+        check_convergence = 10,
+        maxiter::Int = 1_000,
+        kwargs...
 )
+    T = float(Base.promote_eltype(μ, one(eltype(Cμ)) / ε, eltype(Cν)))
+
+    _atol = atol === nothing ? 0 : atol
+    _rtol = rtol === nothing ? (_atol > zero(_atol) ? zero(T) : sqrt(eps(T))) : rtol
+
+    return _entropic_gromov_wasserstein!(
+        μ, ν, Cμ, Cν, ε, alg, _init_storage(μ, ν, Cμ, Cν, ε)...;
+        atol = _atol,
+        rtol = _rtol,
+        check_convergence = check_convergence,
+        maxiter = maxiter,
+        kwargs...
+    )
+end
+
+function _init_storage(μ, ν, Cμ, Cν, ε)
     T = float(Base.promote_eltype(μ, one(eltype(Cμ)) / ε, eltype(Cν)))
     C = similar(Cμ, T, size(μ, 1), size(ν, 1))
     tmp = similar(C)
     plan = similar(C)
-    @. plan = μ * ν'
     plan_prev = similar(C)
+    return T, C, tmp, plan, plan_prev
+end
+
+function _entropic_gromov_wasserstein!(
+        μ::AbstractVector,
+        ν::AbstractVector,
+        Cμ::AbstractMatrix,
+        Cν::AbstractMatrix,
+        ε::Real,
+        alg::EntropicGromovWasserstein,
+        T,
+        C,
+        tmp,
+        plan,
+        plan_prev;
+        atol = nothing,
+        rtol = nothing,
+        check_convergence = 10,
+        maxiter::Int = 1_000,
+        kwargs...)
+    # make sure cache are correctly initialized
+    @. plan = μ * ν'
     plan_prev .= plan
     norm_plan = sum(plan)
-
-    _atol = atol === nothing ? 0 : atol
-    _rtol = rtol === nothing ? (_atol > zero(_atol) ? zero(T) : sqrt(eps(T))) : rtol
 
     function get_new_cost!(C, plan, tmp, Cμ, Cν)
         A_batched_mul_B!(tmp, Cμ, plan)
@@ -80,7 +114,7 @@ function entropic_gromov_wasserstein(
             # reset counter
             to_check_step = check_convergence
             plan_prev .-= plan
-            isconverged = sum(abs, plan_prev) < max(_atol, _rtol * norm_plan)
+            isconverged = sum(abs, plan_prev) < max(atol, rtol * norm_plan)
             if isconverged
                 @debug "Gromov Wasserstein with $(solver.alg) ($iter/$maxiter): converged"
                 break
@@ -91,99 +125,6 @@ function entropic_gromov_wasserstein(
     end
 
     return plan
-end
-
-# Helper functions for Gromov-Wasserstein computations
-
-"""
-    init_matrix_square_loss(Cμ, Cν, μ, ν)
-
-Initialize matrices for square loss in Gromov-Wasserstein computations.
-Returns (constC, hCμ, hCν) where:
-- constC contains constant terms
-- hCμ and hCν are transformations of Cμ and Cν
-"""
-function init_matrix_square_loss(
-    Cμ::AbstractMatrix, Cν::AbstractMatrix, μ::AbstractVector, ν::AbstractVector
-)
-    # For square loss: L(a,b) = (a - b)^2 = a^2 + b^2 - 2ab
-    # So f1(a) = a^2, f2(b) = b^2, h1(a) = a, h2(b) = b
-
-    # Compute constant term
-    constC = dot(μ, Cμ .^ 2 * μ) + dot(ν, Cν .^ 2 * ν)
-
-    # hCμ and hCν are the matrices themselves for square loss
-    hCμ = Cμ
-    hCν = Cν
-
-    return constC, hCμ, hCν
-end
-
-"""
-    gwggrad(constC, hCμ, hCν, γ)
-
-Compute the gradient of the Gromov-Wasserstein objective for square loss.
-"""
-function gwggrad(constC::Real, hCμ::AbstractMatrix, hCν::AbstractMatrix, γ::AbstractMatrix)
-    # Gradient for square loss: 2 * [C1^2 μ 1^T + 1 ν^T C2^2 - 2 C1 T C2^T]
-    # Simplified: 2 * [-C1 T C2^T + C1^2 μ 1^T + 1 ν^T C2^2]
-    # Further simplified to match POT: 2 * [-C1 T C2^T] + const_terms
-    # But the constant terms vanish in the Sinkhorn projection, so:
-    return -2 * (hCμ * γ * hCν')
-end
-
-"""
-    gwloss(constC, hCμ, hCν, γ)
-
-Compute the Gromov-Wasserstein loss for square loss.
-"""
-function gwloss(constC::Real, hCμ::AbstractMatrix, hCν::AbstractMatrix, γ::AbstractMatrix)
-    # Loss = sum_{i,j,k,l} L(Cμ_{i,k}, Cν_{j,l}) γ_{i,j} γ_{k,l}
-    # For square loss = sum (Cμ_{i,k} - Cν_{j,l})^2 γ_{i,j} γ_{k,l}
-    # = constC - 2 * <Cμ γ Cν^T, γ>
-    return constC + sum(gwggrad(constC, hCμ, hCν, γ) .* γ)
-end
-
-"""
-    update_square_loss_barycenter(T, Cs, lambdas, p)
-
-Update the barycenter structure matrix C for square loss.
-
-# Arguments
-- `T`: vector of transport plans
-- `Cs`: vector of cost matrices
-- `lambdas`: weights for each input
-- `p`: barycenter weights
-"""
-function update_square_loss_barycenter(
-    T::Vector, Cs::Vector, lambdas::Vector, p::AbstractVector
-)
-    N = length(p)
-    S = length(Cs)
-
-    # Initialize the barycenter
-    C = zeros(eltype(Cs[1]), N, N)
-
-    # For square loss, the barycenter update is:
-    # C = sum_s lambda_s * (T_s * C_s * T_s^T) / (p * p^T)
-    for s in 1:S
-        # T_s * C_s * T_s^T
-        tmp = T[s] * Cs[s] * T[s]'
-        C .+= lambdas[s] .* tmp
-    end
-
-    # Normalize by outer product of barycenter weights
-    # Avoid division by zero
-    pp = p * p'
-    @inbounds for j in 1:N  # Outer loop over columns for column-major access
-        for i in 1:N  # Inner loop over rows
-            if pp[i, j] > 1e-16
-                C[i, j] /= pp[i, j]
-            end
-        end
-    end
-
-    return C
 end
 
 """
@@ -243,34 +184,34 @@ C_bar = entropic_gromov_barycenters(N, Cs, nothing, nothing, nothing, ε)
 See also: [`entropic_gromov_wasserstein`](@ref)
 """
 function entropic_gromov_barycenters(
-    N::Int,
-    Cs::Vector{<:AbstractMatrix},
-    ps::Union{Nothing,Vector{<:AbstractVector}},
-    p::Union{Nothing,AbstractVector},
-    lambdas::Union{Nothing,AbstractVector},
-    ε::Real,
-    alg::EntropicGromovWasserstein=EntropicGromovWassersteinSinkhorn(SinkhornGibbs());
-    atol=nothing,
-    rtol=nothing,
-    check_convergence::Int=10,
-    maxiter::Int=1_000,
-    init_C::Union{Nothing,AbstractMatrix}=nothing,
-    kwargs...,
+        N::Int,
+        Cs::Vector{<:AbstractMatrix},
+        ps::Union{Nothing, Vector{<:AbstractVector}},
+        p::Union{Nothing, AbstractVector},
+        lambdas::Union{Nothing, AbstractVector},
+        ε::Real,
+        alg::EntropicGromovWasserstein = EntropicGromovWassersteinSinkhorn(SinkhornGibbs());
+        atol = nothing,
+        rtol = nothing,
+        check_convergence::Int = 10,
+        maxiter::Int = 1_000,
+        init_C::Union{Nothing, AbstractMatrix} = nothing,
+        kwargs...
 )
     S = length(Cs)
 
     # Handle default values for ps
-    if ps === nothing
+    if isnothing(ps)
         ps = [ones(size(C, 1)) ./ size(C, 1) for C in Cs]
     end
 
     # Handle default values for p
-    if p === nothing
+    if isnothing(p)
         p = ones(N) / N
     end
 
     # Handle default values for lambdas
-    if lambdas === nothing
+    if isnothing(lambdas)
         lambdas = ones(S) / S
     end
 
@@ -288,11 +229,10 @@ function entropic_gromov_barycenters(
     if init_C === nothing
         # Random initialization
         xalea = randn(N, 2)
-        # Use broadcasting for efficient distance computation
         C = zeros(T, N, N)
-        @inbounds for j in 1:N  # Outer loop over columns for column-major access
-            for i in 1:N  # Inner loop over rows
-                C[i, j] = sum(abs2, xalea[i, :] .- xalea[j, :])
+        @inbounds for j in 1:N
+            for i in 1:N
+                C[i, j] = sum(abs2, xalea[i, :] .- xalea[j, :]) # TODO: fix as this allocates
             end
         end
         C ./= maximum(C)
@@ -310,28 +250,34 @@ function entropic_gromov_barycenters(
     # Initialize previous C for convergence check
     C_prev = similar(C)
     C_prev .= C
+    C_inter = similar(C)
+    C_inter .= C
 
     to_check_step = check_convergence
     isconverged = false
 
+    #define cache for each plan
+    caches = [_init_storage(p, ps[s], C, Cs[s], ε) for s in 1:S]
+    max_size_s = maximum(size.(Cs, 1))
+    cache_update_barycenter = similar(C, T, size(C, 1), max_size_s)
+    err_prev = Inf
+
     for iter in 1:maxiter
         # Compute transport plans from barycenter to each input
         for s in 1:S
-            T_plans[s] = entropic_gromov_wasserstein(
-                p, ps[s], C, Cs[s], ε, alg; atol=1e-4, rtol=1e-4, maxiter=maxiter, kwargs...
+            T_plans[s] = _entropic_gromov_wasserstein!(
+                p, ps[s], C, Cs[s], ε, alg, caches[s]...; atol = 1e-4,
+                rtol = 1e-4, maxiter = maxiter, kwargs...
             )
         end
-
-        # Update barycenter structure
-        C = update_square_loss_barycenter(T_plans, Cs, lambdas, p)
-
+        update_barycenter!(C, T_plans, Cs, lambdas, p, cache_update_barycenter)
         # Check convergence
         to_check_step -= 1
         if to_check_step == 0 || iter == maxiter
             to_check_step = check_convergence
-
-            err = sum(abs, C .- C_prev) / sum(abs, C)
-            isconverged = err < max(_atol, _rtol)
+            err = _fast_norm(C, C_prev)
+            @debug "Gromov-Wasserstein barycenter ($iter/$maxiter): error $err"
+            isconverged = err < max(_atol, _rtol * err_prev)
 
             if isconverged
                 @debug "Gromov-Wasserstein barycenter ($iter/$maxiter): converged with error $err"
@@ -339,6 +285,62 @@ function entropic_gromov_barycenters(
             end
 
             C_prev .= C
+            err_prev = err
+        end
+    end
+
+    return C
+end
+
+function _fast_norm(x, y)
+    s::eltype(x) = 0
+    @simd for i in eachindex(x, y)
+        @inbounds s += abs(x[i] - y[i])
+    end
+    return s
+end
+
+"""
+    update_square_loss_barycenter!(C,T, Cs, lambdas, p, cache)
+
+Update the barycenter structure matrix C for square loss.
+
+# Arguments
+- `T`: vector of transport plans
+- `Cs`: vector of cost matrices
+- `lambdas`: weights for each input
+- `p`: barycenter weights
+- `cache`: intermediate storage for C update
+"""
+function update_barycenter!(
+        C::AbstractMatrix, Ts::Vector, Cs::Vector, lambdas::Vector, p::AbstractVector, cache
+)
+    N = length(p)
+    S = length(Cs)
+    betas = ones(eltype(C), S)
+    betas[1] = 0.0
+
+    # For square loss, the barycenter update is:
+    # C = sum_s lambda_s * (T_s * C_s * T_s^T) / (p * p^T)
+    @inbounds for s in 1:S
+        # T_s * C_s * T_s^T using cache[s] as intermediate storage
+
+        # using views does not help much somehow
+        #cache_s = view(cache, :, 1:size(Cs[s], 1))
+        cache_s = cache[:, 1:size(Cs[s], 1)]
+
+        LinearAlgebra.BLAS.gemm!('N', 'N', 1.0, Ts[s], Cs[s], 0.0, cache_s)
+        LinearAlgebra.BLAS.gemm!('N', 'T', lambdas[s], cache_s, Ts[s], betas[s], C)
+    end
+
+    # Normalize by outer product of barycenter weights
+    # Avoid division by zero
+    @inbounds for j in 1:N  # Outer loop over columns for column-major access
+        for i in 1:N  # Inner loop over rows
+            pp_ij = p[i] * p[j]
+            if pp_ij > eps(eltype(C))
+                C[i, j] = C[i, j] / pp_ij
+            end
         end
     end
 
