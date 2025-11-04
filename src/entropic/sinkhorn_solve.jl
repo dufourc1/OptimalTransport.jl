@@ -1,4 +1,4 @@
-# Convergence checks 
+# Convergence checks
 #
 # for single inputs
 function check_convergence(
@@ -54,7 +54,7 @@ function check_convergence(
     return all(isconverged), norm_diff
 end
 
-# Common solve! operation 
+# Common solve! operation
 function solve!(
     solver::Union{SinkhornSolver,SinkhornBarycenterSolver,SymmetricSinkhornSolver}
 )
@@ -68,7 +68,7 @@ function solve!(
 
     isconverged = false
     to_check_step = check_convergence
-    # initial step if needed 
+    # initial step if needed
     init_step!(solver)
     for iter in 1:maxiter
         # computations before the Sinkhorn iteration (e.g., absorption step)
