@@ -113,13 +113,14 @@ function _entropic_gromov_wasserstein!(
         if to_check_step == 0 || iter == maxiter
             # reset counter
             to_check_step = check_convergence
-            plan_prev .-= plan
-            isconverged = sum(abs, plan_prev) < max(atol, rtol * norm_plan)
+            err, norm_plan = _fast_norm(plan, plan_prev)
+            isconverged = err ≤ max(atol, rtol * norm_plan)
             if isconverged
-                @debug "Gromov Wasserstein with $(solver.alg) ($iter/$maxiter): converged"
+                #@debug "Gromov Wasserstein with $(solver.alg) ($iter/$maxiter): converged"
                 break
             end
             plan_prev .= plan
+            norm_plan = sum(plan)
         end
         get_new_cost!(C, plan, tmp, Cμ, Cν)
     end
@@ -241,7 +242,7 @@ function entropic_gromov_barycenters(
     end
 
     # Set tolerances
-    _atol = atol === nothing ? 0 : atol
+    _atol = atol === nothing ? 1e-9 : atol
     _rtol = rtol === nothing ? (_atol > zero(_atol) ? zero(T) : sqrt(eps(T))) : rtol
 
     # Initialize transport plans
@@ -272,12 +273,16 @@ function entropic_gromov_barycenters(
         end
         update_barycenter!(C, T_plans, Cs, lambdas, p, cache_update_barycenter)
         # Check convergence
+
+        if iter == 1
+            err_prev = _fast_norm(C, C_prev)
+        end
         to_check_step -= 1
         if to_check_step == 0 || iter == maxiter
             to_check_step = check_convergence
-            err = _fast_norm(C, C_prev)
+            err, norm_ref = _fast_norm(C, C_prev)
             @debug "Gromov-Wasserstein barycenter ($iter/$maxiter): error $err"
-            isconverged = err < max(_atol, _rtol * err_prev)
+            isconverged = err ≤ max(_atol, _rtol * norm_ref)
 
             if isconverged
                 @debug "Gromov-Wasserstein barycenter ($iter/$maxiter): converged with error $err"
@@ -292,12 +297,15 @@ function entropic_gromov_barycenters(
     return C
 end
 
+# use l2 norm to match POT
 function _fast_norm(x, y)
     s::eltype(x) = 0
+    n::eltype(x) = 0
     @simd for i in eachindex(x, y)
-        @inbounds s += abs(x[i] - y[i])
+        @inbounds s += abs2(x[i] - y[i])
+        @inbounds n += abs2(y[i])
     end
-    return s
+    return sqrt(s), sqrt(n)
 end
 
 """
@@ -326,8 +334,8 @@ function update_barycenter!(
         # T_s * C_s * T_s^T using cache[s] as intermediate storage
 
         # using views does not help much somehow
-        #cache_s = view(cache, :, 1:size(Cs[s], 1))
-        cache_s = cache[:, 1:size(Cs[s], 1)]
+        cache_s = view(cache, :, 1:size(Cs[s], 1))
+        #cache_s = cache[:, 1:size(Cs[s], 1)]
 
         LinearAlgebra.BLAS.gemm!('N', 'N', 1.0, Ts[s], Cs[s], 0.0, cache_s)
         LinearAlgebra.BLAS.gemm!('N', 'T', lambdas[s], cache_s, Ts[s], betas[s], C)
