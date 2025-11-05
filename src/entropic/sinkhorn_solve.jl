@@ -2,12 +2,12 @@
 #
 # for single inputs
 function check_convergence(
-    μ::AbstractVector,
-    u::AbstractVector,
-    Kv::AbstractVector,
-    cache::SinkhornConvergenceCache,
-    atol::Real,
-    rtol::Real,
+        μ::AbstractVector,
+        u::AbstractVector,
+        Kv::AbstractVector,
+        cache::SinkhornConvergenceCache,
+        atol::Real,
+        rtol::Real
 )
     # unpack
     tmp = cache.tmp
@@ -26,12 +26,12 @@ end
 
 # for batches
 function check_convergence(
-    μ::AbstractVecOrMat,
-    u::AbstractMatrix,
-    Kv::AbstractMatrix,
-    cache::SinkhornBatchConvergenceCache,
-    atol::Real,
-    rtol::Real,
+        μ::AbstractVecOrMat,
+        u::AbstractMatrix,
+        Kv::AbstractMatrix,
+        cache::SinkhornBatchConvergenceCache,
+        atol::Real,
+        rtol::Real
 )
     # unpack
     tmp = cache.tmp
@@ -56,7 +56,7 @@ end
 
 # Common solve! operation
 function solve!(
-    solver::Union{SinkhornSolver,SinkhornBarycenterSolver,SymmetricSinkhornSolver}
+        solver::Union{SinkhornSolver, SinkhornBarycenterSolver, SymmetricSinkhornSolver}
 )
     # unpack solver
     atol = solver.atol
@@ -84,16 +84,16 @@ function solve!(
             to_check_step = check_convergence
 
             isconverged, abserror = OptimalTransport.check_convergence(solver)
-            @debug string(solver.alg) *
-                " (" *
-                string(iter) *
-                "/" *
-                string(maxiter) *
-                ": absolute error of source marginal = " *
-                string(maximum(abserror))
+            # @debug string(solver.alg) *
+            #     " (" *
+            #     string(iter) *
+            #     "/" *
+            #     string(maxiter) *
+            #     ": absolute error of source marginal = " *
+            #     string(maximum(abserror))
 
             if isconverged
-                @debug "$(solver.alg) ($iter/$maxiter): converged"
+                # @debug "$(solver.alg) ($iter/$maxiter): converged"
                 break
             end
         end

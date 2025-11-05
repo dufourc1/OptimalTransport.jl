@@ -11,7 +11,7 @@ Base.show(io::IO, ::SinkhornGibbs) = print(io, "Sinkhorn algorithm")
 
 # cache
 
-struct SinkhornGibbsCache{U,V,KT}
+struct SinkhornGibbsCache{U, V, KT}
     u::U
     v::V
     K::KT
@@ -19,13 +19,13 @@ struct SinkhornGibbsCache{U,V,KT}
 end
 
 function build_cache(
-    ::Type{T},
-    ::SinkhornGibbs,
-    size2::Tuple,
-    μ::AbstractVecOrMat,
-    ν::AbstractVecOrMat,
-    C::AbstractMatrix,
-    ε::Real,
+        ::Type{T},
+        ::SinkhornGibbs,
+        size2::Tuple,
+        μ::AbstractVecOrMat,
+        ν::AbstractVecOrMat,
+        C::AbstractMatrix,
+        ε::Real
 ) where {T}
     # compute Gibbs kernel (has to be mutable for ε-scaling algorithm)
     K = similar(C, T)
@@ -46,15 +46,15 @@ end
 # use `SinkhornGibbs` as default algorithm
 # TODO: remove deprecations
 function sinkhorn(
-    μ,
-    ν,
-    C,
-    ε;
-    tol=nothing,
-    atol=tol,
-    check_marginal_step=nothing,
-    check_convergence=check_marginal_step,
-    kwargs...,
+        μ,
+        ν,
+        C,
+        ε;
+        tol = nothing,
+        atol = tol,
+        check_marginal_step = nothing,
+        check_convergence = check_marginal_step,
+        kwargs...
 )
     if tol !== nothing
         Base.depwarn(
@@ -64,7 +64,7 @@ function sinkhorn(
     if check_marginal_step !== nothing
         Base.depwarn(
             "keyword argument `check_marginal_step` is deprecated, please use `check_convergence`",
-            :sinkhorn,
+            :sinkhorn
         )
     end
 
@@ -76,22 +76,22 @@ function sinkhorn(
         C,
         ε,
         SinkhornGibbs();
-        atol=atol,
-        check_convergence=_check_convergence,
-        kwargs...,
+        atol = atol,
+        check_convergence = _check_convergence,
+        kwargs...
     )
 end
 
 function sinkhorn2(
-    μ,
-    ν,
-    C,
-    ε;
-    tol=nothing,
-    atol=tol,
-    check_marginal_step=nothing,
-    check_convergence=check_marginal_step,
-    kwargs...,
+        μ,
+        ν,
+        C,
+        ε;
+        tol = nothing,
+        atol = tol,
+        check_marginal_step = nothing,
+        check_convergence = check_marginal_step,
+        kwargs...
 )
     if tol !== nothing
         Base.depwarn(
@@ -101,7 +101,7 @@ function sinkhorn2(
     if check_marginal_step !== nothing
         Base.depwarn(
             "keyword argument `check_marginal_step` is deprecated, please use `check_convergence`",
-            :sinkhorn2,
+            :sinkhorn2
         )
     end
 
@@ -113,18 +113,18 @@ function sinkhorn2(
         C,
         ε,
         SinkhornGibbs();
-        atol=atol,
-        check_convergence=_check_convergence,
-        kwargs...,
+        atol = atol,
+        check_convergence = _check_convergence,
+        kwargs...
     )
 end
 
 # specialized sinkhorn2 for SinkhornGibbs
 function sinkhorn2(
-    μ, ν, C, ε, alg::SinkhornGibbs; regularization=false, plan=nothing, kwargs...
+        μ, ν, C, ε, alg::SinkhornGibbs; regularization = false, plan = nothing, kwargs...
 )
     cost = if regularization && plan === nothing
-        # special case where we can take advantage of dual objective formula 
+        # special case where we can take advantage of dual objective formula
         # build solver
         solver = build_solver(μ, ν, C, ε, alg; kwargs...)
         # perform Sinkhorn algorithm
@@ -143,7 +143,7 @@ function sinkhorn2(
             )
             plan
         end
-        sinkhorn_cost_from_plan(γ, C, ε; regularization=regularization)
+        sinkhorn_cost_from_plan(γ, C, ε; regularization = regularization)
     end
     return cost
 end
