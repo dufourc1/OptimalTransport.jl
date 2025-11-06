@@ -59,12 +59,8 @@ function solve!(
         solver::Union{SinkhornSolver, SinkhornBarycenterSolver, SymmetricSinkhornSolver}
 )
     # unpack solver
-    atol = solver.atol
-    rtol = solver.rtol
     maxiter = solver.maxiter
     check_convergence = solver.check_convergence
-    cache = solver.cache
-    convergence_cache = solver.convergence_cache
 
     isconverged = false
     to_check_step = check_convergence
@@ -82,26 +78,16 @@ function solve!(
         if to_check_step == 0 || iter == maxiter
             # reset counter
             to_check_step = check_convergence
-
             isconverged, abserror = OptimalTransport.check_convergence(solver)
-            # @debug string(solver.alg) *
-            #     " (" *
-            #     string(iter) *
-            #     "/" *
-            #     string(maxiter) *
-            #     ": absolute error of source marginal = " *
-            #     string(maximum(abserror))
-
             if isconverged
-                # @debug "$(solver.alg) ($iter/$maxiter): converged"
                 break
             end
         end
     end
 
-    if !isconverged
-        @warn "$(solver.alg) ($maxiter/$maxiter): not converged"
-    end
+    # if !isconverged
+    #     @warn "$(solver.alg) ($maxiter/$maxiter): not converged"
+    # end
 
     return nothing
 end

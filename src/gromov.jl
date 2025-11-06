@@ -49,22 +49,22 @@ function entropic_gromov_wasserstein(
     _rtol = rtol === nothing ? (_atol > zero(_atol) ? zero(T) : sqrt(eps(T))) : rtol
 
     return _entropic_gromov_wasserstein!(
-        μ, ν, Cμ, Cν, ε, alg, _init_storage(μ, ν, Cμ, Cν, ε)...;
+        μ, ν, Cμ, Cν, ε, _init_storage(μ, ν, Cμ, Cν, ε, alg.alg_step)...;
         atol = _atol,
         rtol = _rtol,
         check_convergence = check_convergence,
-        maxiter = maxiter,
-        kwargs...
+        maxiter = maxiter
     )
 end
 
-function _init_storage(μ, ν, Cμ, Cν, ε)
+function _init_storage(μ, ν, Cμ, Cν, ε, alg; kwargs...)
     T = float(Base.promote_eltype(μ, one(eltype(Cμ)) / ε, eltype(Cν)))
     C = similar(Cμ, T, size(μ, 1), size(ν, 1))
     tmp = similar(C)
     plan = similar(C)
     plan_prev = similar(C)
-    return T, C, tmp, plan, plan_prev
+    solver = build_solver(μ, ν, C, ε, alg; kwargs...)
+    return C, tmp, plan, plan_prev, solver
 end
 
 function _entropic_gromov_wasserstein!(
@@ -73,22 +73,20 @@ function _entropic_gromov_wasserstein!(
         Cμ::AbstractMatrix,
         Cν::AbstractMatrix,
         ε::Real,
-        alg::EntropicGromovWasserstein,
-        T,
         C,
         tmp,
         plan,
-        plan_prev;
-        atol = nothing,
-        rtol = nothing,
+        plan_prev,
+        solver;
+        atol = 1e-9,
+        rtol = 0.0,
         check_convergence = 10,
-        maxiter::Int = 1_000,
-        kwargs...)
-    # make sure cache are correctly initialized
+        maxiter::Int = 1_000)
     @. plan = μ * ν'
     plan_prev .= plan
-    norm_plan = sum(plan)
+    norm_plan = sum(μ) * sum(ν)
 
+    # potentially slow: POT uses decomposition assumption on loss
     function get_new_cost!(C, plan, tmp, Cμ, Cν)
         A_batched_mul_B!(tmp, Cμ, plan)
         lmul!(-4, tmp)
@@ -103,24 +101,22 @@ function _entropic_gromov_wasserstein!(
 
     isconverged = false
     for iter in 1:maxiter
+        reset_cache!(solver, C, ε)
         # perform Sinkhorn algorithm
-        solver = build_solver(μ, ν, C, ε, alg.alg_step; kwargs...)
         solve!(solver)
         # compute optimal transport plan
-        plan = sinkhorn_plan(solver)
+        sinkhorn_plan!(plan, solver)
 
         to_check_step -= 1
         if to_check_step == 0 || iter == maxiter
             # reset counter
             to_check_step = check_convergence
-            err, norm_plan = _fast_norm(plan, plan_prev)
+            err = _fast_norm(plan, plan_prev)
             isconverged = err ≤ max(atol, rtol * norm_plan)
             if isconverged
-                #@debug "Gromov Wasserstein with $(solver.alg) ($iter/$maxiter): converged"
                 break
             end
             plan_prev .= plan
-            norm_plan = sum(plan)
         end
         get_new_cost!(C, plan, tmp, Cμ, Cν)
     end
@@ -186,35 +182,20 @@ See also: [`entropic_gromov_wasserstein`](@ref)
 """
 function entropic_gromov_barycenters(
         N::Int,
-        Cs::Vector{<:AbstractMatrix},
-        ps::Union{Nothing, Vector{<:AbstractVector}},
-        p::Union{Nothing, AbstractVector},
-        lambdas::Union{Nothing, AbstractVector},
-        ε::Real,
-        alg::EntropicGromovWasserstein = EntropicGromovWassersteinSinkhorn(SinkhornGibbs());
-        atol = nothing,
-        rtol = nothing,
+        Cs::Vector{<:AbstractMatrix};
+        ps::Vector{<:AbstractVector} = [ones(size(C, 1)) ./ size(C, 1) for C in Cs],
+        p::AbstractVector = ones(N) ./ N,
+        lambdas::AbstractVector = ones(length(Cs)) ./ length(Cs),
+        ε::Real = 1e-1,
+        alg::EntropicGromovWasserstein = EntropicGromovWassersteinSinkhorn(SinkhornGibbs()),
+        atol = 1e-9,
+        rtol = 0.0,
         check_convergence::Int = 10,
         maxiter::Int = 1_000,
-        init_C::Union{Nothing, AbstractMatrix} = nothing,
+        caches_provided = nothing,
         kwargs...
 )
     S = length(Cs)
-
-    # Handle default values for ps
-    if isnothing(ps)
-        ps = [ones(size(C, 1)) ./ size(C, 1) for C in Cs]
-    end
-
-    # Handle default values for p
-    if isnothing(p)
-        p = ones(N) / N
-    end
-
-    # Handle default values for lambdas
-    if isnothing(lambdas)
-        lambdas = ones(S) / S
-    end
 
     # Validate inputs
     length(ps) == S ||
@@ -226,24 +207,18 @@ function entropic_gromov_barycenters(
     # Type promotion
     T = float(Base.promote_eltype(p, one(eltype(Cs[1])) / ε))
 
-    # Initialize barycenter structure C
-    if init_C === nothing
-        # Random initialization
-        xalea = randn(N, 2)
-        C = zeros(T, N, N)
-        @inbounds for j in 1:N
-            for i in 1:N
-                C[i, j] = sum(abs2, xalea[i, :] .- xalea[j, :]) # TODO: fix as this allocates
-            end
-        end
-        C ./= maximum(C)
+    C = rand(T, N, N)
+
+    #define cache for each plan
+    if !isnothing(caches_provided)
+        caches = caches_provided
     else
-        C = convert(Matrix{T}, init_C)
+        caches = [_init_storage(p, ps[s], C, Cs[s], ε, alg.alg_step) for s in 1:S]
     end
 
-    # Set tolerances
-    _atol = atol === nothing ? 1e-9 : atol
-    _rtol = rtol === nothing ? (_atol > zero(_atol) ? zero(T) : sqrt(eps(T))) : rtol
+    # cache for barycenter update
+    max_size_s = maximum(size.(Cs, 1))
+    cache_update_barycenter = similar(C, T, size(C, 1), max_size_s)
 
     # Initialize transport plans
     T_plans = Vector{Matrix{T}}(undef, S)
@@ -251,46 +226,34 @@ function entropic_gromov_barycenters(
     # Initialize previous C for convergence check
     C_prev = similar(C)
     C_prev .= C
-    C_inter = similar(C)
-    C_inter .= C
 
     to_check_step = check_convergence
     isconverged = false
-
-    #define cache for each plan
-    caches = [_init_storage(p, ps[s], C, Cs[s], ε) for s in 1:S]
-    max_size_s = maximum(size.(Cs, 1))
-    cache_update_barycenter = similar(C, T, size(C, 1), max_size_s)
-    err_prev = Inf
+    norm_plan = sum(p) * sum(p)
 
     for iter in 1:maxiter
         # Compute transport plans from barycenter to each input
         for s in 1:S
             T_plans[s] = _entropic_gromov_wasserstein!(
-                p, ps[s], C, Cs[s], ε, alg, caches[s]...; atol = 1e-4,
+                p, ps[s], C, Cs[s], ε, caches[s]...; atol = 1e-4,
                 rtol = 1e-4, maxiter = maxiter, kwargs...
             )
         end
         update_barycenter!(C, T_plans, Cs, lambdas, p, cache_update_barycenter)
         # Check convergence
 
-        if iter == 1
-            err_prev = _fast_norm(C, C_prev)
-        end
         to_check_step -= 1
         if to_check_step == 0 || iter == maxiter
             to_check_step = check_convergence
-            err, norm_ref = _fast_norm(C, C_prev)
-            @debug "Gromov-Wasserstein barycenter ($iter/$maxiter): error $err"
-            isconverged = err ≤ max(_atol, _rtol * norm_ref)
+            err = _fast_norm(C, C_prev)
+            isconverged = err ≤ max(atol, rtol * norm_plan)
 
-            if isconverged
-                @debug "Gromov-Wasserstein barycenter ($iter/$maxiter): converged with error $err"
+            if isconverged || iter == maxiter
+                @debug "GW barycenter with $(alg) ($iter/$maxiter): converged with error $err"
                 break
             end
 
             C_prev .= C
-            err_prev = err
         end
     end
 
@@ -300,12 +263,10 @@ end
 # use l2 norm to match POT
 function _fast_norm(x, y)
     s::eltype(x) = 0
-    n::eltype(x) = 0
     @simd for i in eachindex(x, y)
         @inbounds s += abs2(x[i] - y[i])
-        @inbounds n += abs2(y[i])
     end
-    return sqrt(s), sqrt(n)
+    return sqrt(s)
 end
 
 """
@@ -325,20 +286,20 @@ function update_barycenter!(
 )
     N = length(p)
     S = length(Cs)
-    betas = ones(eltype(C), S)
-    betas[1] = 0.0
 
     # For square loss, the barycenter update is:
     # C = sum_s lambda_s * (T_s * C_s * T_s^T) / (p * p^T)
-    @inbounds for s in 1:S
+
+    # first iteration to properly reset C
+    cache_1 = view(cache, :, 1:size(Cs[1], 1))
+    LinearAlgebra.BLAS.gemm!('N', 'N', 1.0, Ts[1], Cs[1], 0.0, cache_1)
+    LinearAlgebra.BLAS.gemm!('N', 'T', lambdas[1], cache_1, Ts[1], 0.0, C)
+
+    @inbounds for s in 2:S
         # T_s * C_s * T_s^T using cache[s] as intermediate storage
-
-        # using views does not help much somehow
         cache_s = view(cache, :, 1:size(Cs[s], 1))
-        #cache_s = cache[:, 1:size(Cs[s], 1)]
-
         LinearAlgebra.BLAS.gemm!('N', 'N', 1.0, Ts[s], Cs[s], 0.0, cache_s)
-        LinearAlgebra.BLAS.gemm!('N', 'T', lambdas[s], cache_s, Ts[s], betas[s], C)
+        LinearAlgebra.BLAS.gemm!('N', 'T', lambdas[s], cache_s, Ts[s], 1.0, C)
     end
 
     # Normalize by outer product of barycenter weights

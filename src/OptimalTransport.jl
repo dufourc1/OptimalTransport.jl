@@ -15,6 +15,8 @@ using IterativeSolvers
 using LogExpFunctions: LogExpFunctions
 using NNlib: NNlib
 
+using Accessors
+
 export SinkhornGibbs, SinkhornStabilized, SinkhornEpsilonScaling
 export SinkhornBarycenterGibbs
 export QuadraticOTNewton

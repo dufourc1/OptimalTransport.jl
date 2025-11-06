@@ -4,7 +4,7 @@ abstract type Sinkhorn end
 
 # solver
 
-struct SinkhornSolver{A<:Sinkhorn,M,N,CT,E<:Real,T<:Real,R<:Real,C1,C2}
+struct SinkhornSolver{A <: Sinkhorn, M, N, CT, E <: Real, T <: Real, R <: Real, C1, C2}
     source::M
     target::N
     C::CT
@@ -19,15 +19,15 @@ struct SinkhornSolver{A<:Sinkhorn,M,N,CT,E<:Real,T<:Real,R<:Real,C1,C2}
 end
 
 function build_solver(
-    μ::AbstractVecOrMat,
-    ν::AbstractVecOrMat,
-    C::AbstractMatrix,
-    ε::Real,
-    alg::Sinkhorn;
-    atol=nothing,
-    rtol=nothing,
-    check_convergence=10,
-    maxiter::Int=1_000,
+        μ::AbstractVecOrMat,
+        ν::AbstractVecOrMat,
+        C::AbstractMatrix,
+        ε::Real,
+        alg::Sinkhorn;
+        atol = nothing,
+        rtol = nothing,
+        check_convergence = 10,
+        maxiter::Int = 1_000
 )
     # check that source and target marginals have the correct size and are balanced
     checksize(μ, ν, C)
@@ -55,12 +55,12 @@ end
 
 # convergence caches
 
-struct SinkhornConvergenceCache{U,S<:Real}
+struct SinkhornConvergenceCache{U, S <: Real}
     tmp::U
     norm_source::S
 end
 
-struct SinkhornBatchConvergenceCache{U,S,C}
+struct SinkhornBatchConvergenceCache{U, S, C}
     tmp::U
     tmp2::U
     norm_source::S
@@ -76,11 +76,11 @@ function build_convergence_cache(::Type{T}, ::Tuple{}, μ::AbstractVector) where
 end
 
 function build_convergence_cache(
-    ::Type{T}, size2::Tuple{Int}, μ::AbstractVecOrMat
+        ::Type{T}, size2::Tuple{Int}, μ::AbstractVecOrMat
 ) where {T}
     tmp = similar(μ, T, size(μ, 1), size2...)
     tmp2 = similar(tmp)
-    norm_μ = μ isa AbstractVector ? sum(abs, μ) : sum(abs, μ; dims=1)
+    norm_μ = μ isa AbstractVector ? sum(abs, μ) : sum(abs, μ; dims = 1)
     norm_uKv = similar(tmp, 1, size2...)
     norm_diff = similar(tmp, 1, size2...)
     isconverged = similar(tmp, Bool, 1, size2...)
@@ -116,15 +116,25 @@ function check_convergence(solver::SinkhornSolver)
         solver.cache.Kv,
         solver.convergence_cache,
         solver.atol,
-        solver.rtol,
+        solver.rtol
     )
 end
 
-function sinkhorn_plan(u, v, K)
-    return K .* add_singleton(u, Val(2)) .* add_singleton(v, Val(1))
+function sinkhorn_plan!(plan, u, v, K)
+    plan .= K .* (u .* v') #add_singleton(u,Val(2)) .*add_singleton(v, Val(1))
 end
 
-# dual objective 
+function sinkhorn_plan!(plan, solver)
+    sinkhorn_plan!(plan, solver.cache.u, solver.cache.v, solver.cache.K)
+end
+
+function sinkhorn_plan(u, v, K)
+    plan = similar(K)
+    sinkhorn_plan!(plan, u, v, K)
+    return plan
+end
+
+# dual objective
 function sinkhorn_dual_objective(u, v, Kv, K, ε)
     # return ε * (dot_vecwise(log.(u), μ) .+ dot_vecwise(log.(v), ν))
     return ε * (
@@ -183,10 +193,10 @@ function sinkhorn(μ, ν, C, ε, alg::Sinkhorn; kwargs...)
     return γ
 end
 
-function sinkhorn_cost_from_plan(γ, C, ε; regularization=false)
+function sinkhorn_cost_from_plan(γ, C, ε; regularization = false)
     cost = if regularization
         dot_matwise(γ, C) .+
-        ε .* reshape(sum(LogExpFunctions.xlogx, γ; dims=(1, 2)), size(γ)[3:end])
+        ε .* reshape(sum(LogExpFunctions.xlogx, γ; dims = (1, 2)), size(γ)[3:end])
     else
         dot_matwise(γ, C)
     end
@@ -212,7 +222,8 @@ supported here are the same as those in the [`sinkhorn`](@ref) function.
 
 See also: [`sinkhorn`](@ref)
 """
-function sinkhorn2(μ, ν, C, ε, alg::Sinkhorn; regularization=false, plan=nothing, kwargs...)
+function sinkhorn2(
+        μ, ν, C, ε, alg::Sinkhorn; regularization = false, plan = nothing, kwargs...)
     γ = if plan === nothing
         sinkhorn(μ, ν, C, ε, alg; kwargs...)
     else
@@ -223,6 +234,6 @@ function sinkhorn2(μ, ν, C, ε, alg::Sinkhorn; regularization=false, plan=noth
         )
         plan
     end
-    cost = sinkhorn_cost_from_plan(γ, C, ε; regularization=regularization)
+    cost = sinkhorn_cost_from_plan(γ, C, ε; regularization = regularization)
     return cost
 end

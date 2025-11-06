@@ -43,6 +43,22 @@ function build_cache(
     return SinkhornGibbsCache(u, v, K, Kv)
 end
 
+function reset_cache!(cache::SinkhornGibbsCache, C::AbstractMatrix, ε::Real)
+    u = cache.u
+    v = cache.v
+    fill!(u, one(eltype(u)))
+    fill!(v, one(eltype(v)))
+    @inbounds for i in eachindex(cache.K)
+        cache.K[i] = exp(-C[i] / ε)
+    end
+    return nothing
+end
+
+function reset_cache!(solver::SinkhornSolver, C::AbstractMatrix, ε::Real)
+    reset_cache!(solver.cache, C, ε)
+    return nothing
+end
+
 # use `SinkhornGibbs` as default algorithm
 # TODO: remove deprecations
 function sinkhorn(
